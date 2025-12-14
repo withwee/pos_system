@@ -26,12 +26,17 @@ export default function Dashboard() {
   const [timeFilter, setTimeFilter] = useState("monthly");
 
   useEffect(() => {
-    api
-      .get("/summary")
-      .then((res) => setSummary(res.data))
-      .catch(() => toast.error("Gagal memuat data dashboard"))
-      .finally(() => setLoading(false));
-  }, []);
+  api
+    .get("/sales-report/summary")
+    .then((res) => {
+      setSummary(res.data);
+    })
+    .catch((err) => {
+      console.error(err);
+      toast.error("Gagal memuat data dashboard");
+    })
+    .finally(() => setLoading(false));
+}, []);
 
   const handleExport = (format: string) => {
     toast.success(`Laporan berhasil diekspor (${format.toUpperCase()})`);

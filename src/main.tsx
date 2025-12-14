@@ -1,13 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import './index.css' 
+import "./index.css";
 import { AuthProvider } from "./contexts/AuthContext";
+import { POSProvider } from "./contexts/POSContext";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <AuthProvider>
-      <App />
+      <POSProvider>
+        <App />
+      </POSProvider>
     </AuthProvider>
   </React.StrictMode>
 );

@@ -100,9 +100,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
-  /* -----------------------------------------
-     PROVIDER VALUE
-  ------------------------------------------ */
   return (
     <AuthContext.Provider
       value={{
@@ -118,9 +115,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* -----------------------------------------
-   CUSTOM HOOK
------------------------------------------- */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {

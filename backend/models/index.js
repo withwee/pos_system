@@ -14,20 +14,13 @@ const sequelize = new Sequelize(
 
 const db = {};
 db.sequelize = sequelize;
-db.Sequelize = Sequelize;
 
-// =======================
-// REGISTER MODELS
-// =======================
 db.User = require("./user.model")(sequelize);
 db.Category = require("./category.model")(sequelize);
 db.Product = require("./product.model")(sequelize);
 db.Transaction = require("./transaction.model")(sequelize);
 db.TransactionItem = require("./transactionItem.model")(sequelize);
 
-// =======================
-// MODEL RELATIONS
-// =======================
 
 // USER → TRANSACTION (kasir membuat transaksi)
 db.User.hasMany(db.Transaction, { foreignKey: "userId" });

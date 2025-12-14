@@ -3,52 +3,54 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 
-// Middleware
 app.use(cors());
-app.use(express.json()); // This must come before routes
-
-// Database connection
+app.use(express.json());
 const db = require("./models");
-db.sequelize.authenticate()
-  .then(() => {
-    console.log("Database connected");
-    return db.sequelize.sync({ alter: true });
-  })
-  .then(async () => {
-    console.log("Database synced");
+
+(async () => {
+  try {
+    await db.sequelize.authenticate();
+    console.log("✅ Database connected");
+    await db.sequelize.sync();
+    console.log("✅ Database synced");
+
     await db.createDefaultAdmin();
-  })
-  .catch((err) => {
-    console.log("Database error: " + err);
-  });
+  } catch (err) {
+    console.error("❌ Database error:", err);
+    process.exit(1); 
+  }
+})();
 
-// Routes
-const authRoutes = require("./routes/auth.routes");
-app.use("/api/auth", authRoutes);
+try {
+  app.use("/api/auth", require("./routes/auth.routes"));
+  app.use("/api/categories", require("./routes/category.routes"));
+  app.use("/api/products", require("./routes/product.routes"));
+  app.use("/api/transactions", require("./routes/transaction.routes"));
+  app.use("/api/reports", require("./routes/report.routes"));
+  app.use("/api/profitloss", require("./routes/profitloss.routes"));
+  app.use("/api/sales-report", require("./routes/salesReport.routes"));
 
-const categoryRoutes = require("./routes/category.routes");
-app.use("/api/categories", categoryRoutes);
+} catch (err) {
+  console.error("❌ Route load error:", err);
+  process.exit(1); 
+}
 
-const productRoutes = require("./routes/product.routes");
-app.use("/api/products", productRoutes);
-
-const transactionRoutes = require("./routes/transaction.routes");
-app.use("/api/transactions", transactionRoutes);
-
-const summaryRoutes = require("./routes/summary.routes");
-app.use("/api/summary", summaryRoutes);
-
-
-// Test route
 app.get("/", (req, res) => {
-  res.json({ message: "POS Backend Running" });
+  res.json({
+    status: "OK",
+    message: "POS Backend Running",
+    time: new Date()
+  });
 });
 
-// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ message: "Something went wrong!" });
+  console.error("❌ Unhandled error:", err);
+  res.status(500).json({
+    message: "Internal Server Error",
+  });
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
