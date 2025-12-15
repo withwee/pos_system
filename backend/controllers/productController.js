@@ -1,4 +1,4 @@
-const { Product, Category } = require("../models");
+const { Product, Category, Unit } = require("../models"); // ⬅️ Tambahkan Unit
 const { Op } = require("sequelize");
 
 // GET /api/products
@@ -11,7 +11,7 @@ exports.getAll = async (req, res) => {
       where[Op.or] = [
         { name: { [Op.like]: `%${search}%` } },
         { description: { [Op.like]: `%${search}%` } },
-        { sku: { [Op.like]: `%${search}%` } }
+        { sku: { [Op.like]: `%${search}%` } },
       ];
     }
 
@@ -28,10 +28,16 @@ exports.getAll = async (req, res) => {
       include: [
         {
           model: Category,
-          attributes: ["id", "name"]
-        }
+          as: "category",
+          attributes: ["id", "name"],
+        },
+        {
+          model: Unit, // ⬅️ TAMBAHAN
+          as: "unit",
+          attributes: ["id", "name", "symbol", "type"],
+        },
       ],
-      order: [["name", "ASC"]]
+      order: [["name", "ASC"]],
     });
 
     res.json(products);
@@ -48,9 +54,15 @@ exports.getOne = async (req, res) => {
       include: [
         {
           model: Category,
-          attributes: ["id", "name"]
-        }
-      ]
+          as: "category",
+          attributes: ["id", "name"],
+        },
+        {
+          model: Unit, // ⬅️ TAMBAHAN
+          as: "unit",
+          attributes: ["id", "name", "symbol", "type"],
+        },
+      ],
     });
 
     if (!product) {
@@ -76,8 +88,16 @@ exports.create = async (req, res) => {
       stock,
       minStock,
       categoryId,
-      image
+      unitId, // ⬅️ TAMBAHAN
+      image,
     } = req.body;
+
+    // Validasi
+    if (!name || !sku || !price || !cost || !categoryId || !unitId) {
+      return res.status(400).json({
+        message: "Nama, SKU, harga, cost, kategori, dan satuan wajib diisi",
+      });
+    }
 
     const product = await Product.create({
       name,
@@ -85,13 +105,22 @@ exports.create = async (req, res) => {
       sku,
       price,
       cost,
-      stock,
-      minStock,
+      stock: stock || 0,
+      minStock: minStock || 5,
       categoryId,
-      image
+      unitId, // ⬅️ TAMBAHAN
+      image,
     });
 
-    res.status(201).json(product);
+    // Fetch with relations
+    const productWithDetails = await Product.findByPk(product.id, {
+      include: [
+        { model: Category, as: "category" },
+        { model: Unit, as: "unit" }, // ⬅️ TAMBAHAN
+      ],
+    });
+
+    res.status(201).json(productWithDetails);
   } catch (err) {
     console.error("Create product error:", err);
 
@@ -113,7 +142,16 @@ exports.update = async (req, res) => {
     }
 
     await product.update(req.body);
-    res.json(product);
+
+    // Fetch with relations
+    const updatedProduct = await Product.findByPk(req.params.id, {
+      include: [
+        { model: Category, as: "category" },
+        { model: Unit, as: "unit" }, // ⬅️ TAMBAHAN
+      ],
+    });
+
+    res.json(updatedProduct);
   } catch (err) {
     console.error("Update product error:", err);
 

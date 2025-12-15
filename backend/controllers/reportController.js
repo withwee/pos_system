@@ -1,10 +1,7 @@
 const { Transaction, TransactionItem, Product } = require("../models");
 const { Op, fn, col, literal } = require("sequelize");
 
-/**
- * SALES SUMMARY
- * /api/reports/sales?type=daily|monthly
- */
+
 exports.salesSummary = async (req, res) => {
   try {
     const { type = "daily" } = req.query;

@@ -19,4 +19,7 @@ module.exports = (sequelize) => {
   });
 
   return Category;
+
+module.exports = {Category};
+
 };
