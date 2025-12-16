@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowLeft, Package, Plus, RotateCcw, Ruler, Info, Loader2 } from "lucide-react";
-import axios from "axios";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+import api from "../../services/api";
+import { usePOS } from "../../contexts/POSContext";
 
 interface Category {
   id: number;
@@ -33,24 +32,8 @@ interface FormErrors {
   [key: string]: string;
 }
 
-const getToken = () => localStorage.getItem("token");
-
-const api = axios.create({
-  baseURL: API_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
-
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
 export default function AddProduct() {
+  const { addProduct } = usePOS();
   const [categories, setCategories] = useState<Category[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,13 +128,29 @@ useEffect(() => {
         description: formData.description.trim() || null,
       };
 
-      await api.post("/products", payload);
+      const saved = await addProduct(payload);
+
+      if (!saved) {
+        throw new Error("Gagal menyimpan produk");
+      }
 
       alert("Produk berhasil ditambahkan!");
       handleReset();
     } catch (error: any) {
       console.error("Submit error:", error);
-      const errorMessage = error.response?.data?.message || "Gagal menambahkan produk";
+      const status = error?.response?.status;
+      const apiMsg = error?.response?.data?.message;
+      let errorMessage =
+        apiMsg ||
+        error?.message ||
+        "Gagal menambahkan produk";
+
+      if (status === 401) {
+        errorMessage = apiMsg || "Token tidak valid atau sudah kedaluwarsa. Silakan login ulang.";
+      } else if (status === 403) {
+        errorMessage = apiMsg || "Akses ditolak. Hanya admin yang boleh menambah produk.";
+      }
+
       alert(errorMessage);
     } finally {
       setSubmitting(false);
@@ -394,10 +393,15 @@ useEffect(() => {
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-200">
                   <button
                     onClick={handleSubmit}
-                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-black font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl"
+                    disabled={submitting}
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-black font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <Plus className="w-5 h-5" />
-                    Tambah Produk
+                    {submitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Plus className="w-5 h-5" />
+                    )}
+                    {submitting ? "Menyimpan..." : "Tambah Produk"}
                   </button>
                   <button
                     onClick={handleReset}

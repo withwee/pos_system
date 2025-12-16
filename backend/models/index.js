@@ -31,8 +31,8 @@ db.User.hasMany(db.Transaction, { foreignKey: "userId" });
 db.Transaction.belongsTo(db.User, { foreignKey: "userId" });
 
 // CATEGORY → PRODUCT
-db.Category.hasMany(db.Product, { foreignKey: "categoryId" });
-db.Product.belongsTo(db.Category, { foreignKey: "categoryId" });
+db.Category.hasMany(db.Product, { foreignKey: "categoryId", as: "products" });
+db.Product.belongsTo(db.Category, { foreignKey: "categoryId", as: "category" });
 
 // UNIT → PRODUCT ⬅️ TAMBAHAN BARU
 db.Unit.hasMany(db.Product, { foreignKey: "unitId" });

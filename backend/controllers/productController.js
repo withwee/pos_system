@@ -43,7 +43,7 @@ exports.getAll = async (req, res) => {
     res.json(products);
   } catch (err) {
     console.error("Get products error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };
 
@@ -128,7 +128,7 @@ exports.create = async (req, res) => {
       return res.status(400).json({ message: "SKU already exists" });
     }
 
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };
 
@@ -159,7 +159,7 @@ exports.update = async (req, res) => {
       return res.status(400).json({ message: "SKU already exists" });
     }
 
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };
 
@@ -176,6 +176,6 @@ exports.remove = async (req, res) => {
     res.json({ message: "Product deleted" });
   } catch (err) {
     console.error("Delete product error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };

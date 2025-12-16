@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import api from "../services/api";
 
 export interface Product {
   id: string;
@@ -14,6 +15,7 @@ export interface Product {
   image?: string;
   addedBy: string;
   addedDate: string;
+  sku?: string;
 }
 
 export interface CartItem {
@@ -62,9 +64,10 @@ interface POSContextType {
   purchases: Purchase[];
   notifications: Notification[];
 
-  addProduct: (product: Omit<Product, "id" | "addedDate">) => void;
-  updateProduct: (id: string, product: Partial<Product>) => void;
-  deleteProduct: (id: string) => void;
+  addProduct: (product: NewProductInput) => Promise<Product | null>;
+  updateProduct: (id: string, product: Partial<Product>) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
+  refreshProducts: () => Promise<void>;
 
   addToCart: (product: Product, quantity: number) => void;
   removeFromCart: (productId: string) => void;
@@ -82,6 +85,37 @@ interface POSContextType {
 }
 
 const POSContext = createContext<POSContextType | undefined>(undefined);
+
+export interface NewProductInput {
+  name: string;
+  description?: string | null;
+  sku: string;
+  price: number;
+  cost: number;
+  stock: number;
+  minStock?: number;
+  categoryId: number;
+  unitId: number;
+}
+
+const mapApiProduct = (p: any): Product => ({
+  id: String(p.id),
+  name: p.name,
+  category: p.category?.name || p.category || "Tanpa Kategori",
+  supplier: p.supplier || "Unknown",
+  purchasePrice: Number(p.cost ?? p.purchasePrice ?? 0),
+  salePrice: Number(p.price ?? p.salePrice ?? 0),
+  stock: Number(p.stock ?? 0),
+  minStock: Number(p.minStock ?? 0),
+  expiryDate: p.expiryDate || undefined,
+  description: p.description || "",
+  image: p.image,
+  addedBy: p.addedBy || "Admin",
+  addedDate: p.createdAt
+    ? p.createdAt.split("T")[0]
+    : new Date().toISOString().split("T")[0],
+  sku: p.sku,
+});
 
 /* -------------------------------------------------------------
    MOCK DATA
@@ -147,7 +181,7 @@ const mockPurchases: Purchase[] = [
 ];
 
 export function POSProvider({ children }: { children: React.ReactNode }) {
-  const [products, setProducts] = useState<Product[]>(mockProducts);
+  const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [transactions, setTransactions] =
     useState<Transaction[]>(mockTransactions);
@@ -162,38 +196,90 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
     },
   ]);
 
+  const refreshProducts = async () => {
+    try {
+      const res = await api.get("/products");
+      const payload = res.data?.data ?? res.data ?? [];
+      const mapped: Product[] = (payload as any[]).map(mapApiProduct);
+      setProducts(mapped);
+    } catch (err) {
+      console.error("Failed to load products:", err);
+    }
+  };
+
+  useEffect(() => {
+    refreshProducts();
+  }, []);
+
   /* -------------------------------------------------------------
      PRODUCT METHODS
   ------------------------------------------------------------- */
-  const addProduct = (product: Omit<Product, "id" | "addedDate">) => {
-    const newProduct: Product = {
-      ...product,
-      id: Date.now().toString(),
-      addedDate: new Date().toISOString().split("T")[0],
-    };
+  const addProduct = async (product: NewProductInput): Promise<Product | null> => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("Silakan login ulang (token tidak ditemukan)");
+      }
 
-    setProducts([...products, newProduct]);
+      const res = await api.post("/products", product, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload = res.data?.data ?? res.data;
+      const newProduct = mapApiProduct(payload);
 
-    setPurchases([
-      {
-        id: Date.now().toString(),
-        date: new Date().toISOString().split("T")[0],
-        product: product.name,
-        quantity: product.stock,
-        totalCost: product.purchasePrice * product.stock,
-        supplier: product.supplier,
-        addedBy: product.addedBy,
-      },
-      ...purchases,
-    ]);
+      setProducts((prev) => [...prev, newProduct]);
+      setPurchases((prev) => [
+        {
+          id: Date.now().toString(),
+          date: newProduct.addedDate,
+          product: newProduct.name,
+          quantity: newProduct.stock,
+          totalCost: newProduct.purchasePrice * newProduct.stock,
+          supplier: newProduct.supplier,
+          addedBy: newProduct.addedBy,
+        },
+        ...prev,
+      ]);
+
+      return newProduct;
+    } catch (err) {
+      console.error("Failed to add product:", err);
+      return null;
+    }
   };
 
-  const updateProduct = (id: string, updated: Partial<Product>) => {
-    setProducts(products.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+  const updateProduct = async (id: string, updated: Partial<Product>) => {
+    const payload: Record<string, any> = { ...updated };
+
+    if (updated.salePrice !== undefined) {
+      payload.price = updated.salePrice;
+      delete payload.salePrice;
+    }
+
+    if (updated.purchasePrice !== undefined) {
+      payload.cost = updated.purchasePrice;
+      delete payload.purchasePrice;
+    }
+
+    try {
+      await api.put(`/products/${id}`, payload);
+    } catch (err) {
+      console.error("Failed to update product:", err);
+    }
+
+    setProducts((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...updated } : p))
+    );
   };
 
-  const deleteProduct = (id: string) => {
-    setProducts(products.filter((p) => p.id !== id));
+  const deleteProduct = async (id: string) => {
+    try {
+      await api.delete(`/products/${id}`);
+    } catch (err) {
+      console.error("Failed to delete product:", err);
+    }
+
+    setProducts((prev) => prev.filter((p) => p.id !== id));
   };
 
   /* -------------------------------------------------------------
@@ -288,6 +374,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         createTransaction,
         markNotificationAsRead,
         markAllNotificationsAsRead,
+        refreshProducts,
 
         storeName: "POS Mart", // ✅ FIXED
       }}
