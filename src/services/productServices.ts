@@ -20,7 +20,10 @@ export async function fetchProducts() {
   return api.get("/products");
 }
 
-// GET single product by id
 export async function fetchProduct(id: number) {
   return api.get(`/products/${id}`);
+}
+
+export async function fetchUnits() {
+  return api.get("/units");
 }

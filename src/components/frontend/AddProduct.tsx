@@ -1,32 +1,62 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Package, Plus, RotateCcw, Ruler, Info } from "lucide-react";
+import { ArrowLeft, Package, Plus, RotateCcw, Ruler, Info, Loader2 } from "lucide-react";
+import axios from "axios";
 
-// Mock data untuk demo
-const mockCategories = [
-  { id: 1, name: "Makanan" },
-  { id: 2, name: "Minuman" },
-  { id: 3, name: "Snack" }
-];
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
-const mockUnits = [
-  { id: 1, name: "Piece", symbol: "pcs", type: "piece" },
-  { id: 2, name: "Kilogram", symbol: "kg", type: "weight" },
-  { id: 3, name: "Gram", symbol: "gr", type: "weight" },
-  { id: 4, name: "Liter", symbol: "L", type: "volume" },
-  { id: 5, name: "Mililiter", symbol: "ml", type: "volume" },
-  { id: 6, name: "Pack", symbol: "pack", type: "package" },
-  { id: 7, name: "Box", symbol: "box", type: "package" },
-  { id: 8, name: "Lusin", symbol: "lusin", type: "package" },
-  { id: 9, name: "Karton", symbol: "karton", type: "package" },
-  { id: 10, name: "Renteng", symbol: "renteng", type: "package" },
-  { id: 11, name: "Ikat", symbol: "ikat", type: "package" }
-];
+interface Category {
+  id: number;
+  name: string;
+  description?: string;
+}
+
+interface Unit {
+  id: number;
+  name: string;
+  symbol: string;
+  type: string;
+}
+
+interface FormData {
+  name: string;
+  categoryId: string;
+  unitId: string;
+  sku: string;
+  price: string;
+  cost: string;
+  stock: string;
+  minStock: string;
+  description: string;
+}
+
+interface FormErrors {
+  [key: string]: string;
+}
+
+const getToken = () => localStorage.getItem("token");
+
+const api = axios.create({
+  baseURL: API_URL,
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+api.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export default function AddProduct() {
-  const [categories, setCategories] = useState(mockCategories);
-  const [units, setUnits] = useState(mockUnits);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     name: "",
     categoryId: "",
     unitId: "",
@@ -38,29 +68,101 @@ export default function AddProduct() {
     description: "",
   });
 
-  const handleSubmit = () => {
-    // Validasi
-    if (!formData.name || !formData.categoryId || !formData.unitId || 
-        !formData.sku || !formData.price || !formData.cost || !formData.stock) {
-      alert("Semua field wajib diisi!");
+useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+
+        const [categoriesRes, unitsRes] = await Promise.all([
+          api.get("/categories"),
+          api.get("/units")
+        ]);
+
+        const categoriesData = categoriesRes.data.success 
+          ? categoriesRes.data.data 
+          : categoriesRes.data;
+        setCategories(categoriesData || []);
+
+        const unitsData = unitsRes.data.success 
+          ? unitsRes.data.data 
+          : unitsRes.data;
+        setUnits(unitsData || []);
+
+        const defaultUnit = unitsData.find((u: Unit) => u.symbol === "pcs");
+        if (defaultUnit) {
+          setFormData((prev) => ({ ...prev, unitId: defaultUnit.id.toString() }));
+        }
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+        alert("Gagal memuat data kategori dan satuan");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {};
+
+    if (!formData.name.trim()) newErrors.name = "Nama produk wajib diisi";
+    if (!formData.categoryId) newErrors.categoryId = "Kategori wajib dipilih";
+    if (!formData.unitId) newErrors.unitId = "Satuan wajib dipilih";
+    if (!formData.sku.trim()) newErrors.sku = "SKU wajib diisi";
+    if (!formData.price) newErrors.price = "Harga jual wajib diisi";
+    if (!formData.cost) newErrors.cost = "Harga beli wajib diisi";
+    if (!formData.stock) newErrors.stock = "Stok awal wajib diisi";
+
+    if (formData.price && formData.cost) {
+      if (Number(formData.price) <= Number(formData.cost)) {
+        newErrors.price = "Harga jual harus lebih besar dari harga beli";
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async () => {
+    if (!validateForm()) {
+      alert("Mohon perbaiki kesalahan pada form");
       return;
     }
 
-    if (Number(formData.price) <= Number(formData.cost)) {
-      alert("Harga jual harus lebih besar dari harga beli!");
-      return;
-    }
+    setSubmitting(true);
 
-    console.log("Form submitted:", formData);
-    alert("Produk berhasil ditambahkan! (Demo Mode)");
-    handleReset();
+    try {
+      const payload = {
+        name: formData.name.trim(),
+        categoryId: parseInt(formData.categoryId),
+        unitId: parseInt(formData.unitId),
+        sku: formData.sku.trim().toUpperCase(),
+        price: parseFloat(formData.price),
+        cost: parseFloat(formData.cost),
+        stock: parseFloat(formData.stock),
+        minStock: formData.minStock ? parseFloat(formData.minStock) : 5,
+        description: formData.description.trim() || null,
+      };
+
+      await api.post("/products", payload);
+
+      alert("Produk berhasil ditambahkan!");
+      handleReset();
+    } catch (error: any) {
+      console.error("Submit error:", error);
+      const errorMessage = error.response?.data?.message || "Gagal menambahkan produk";
+      alert(errorMessage);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleReset = () => {
     setFormData({
       name: "",
       categoryId: "",
-      unitId: "",
+      unitId: units.find(u => u.symbol === "pcs")?.id.toString() || "",
       sku: "",
       price: "",
       cost: "",
@@ -68,30 +170,34 @@ export default function AddProduct() {
       minStock: "",
       description: "",
     });
+    setErrors({});
   };
 
-  const selectedUnit = units.find(u => u.id.toString() === formData.unitId);
+  const selectedUnit = units.find((u) => u.id.toString() === formData.unitId);
+
+  const calculateProfit = () => {
+    if (!formData.price || !formData.cost) return null;
+    const profit = Number(formData.price) - Number(formData.cost);
+    const margin = ((profit / Number(formData.price)) * 100).toFixed(1);
+    return { profit, margin };
+  };
+  const [errors, setErrors] = useState<FormErrors>({});
+  const profitData = calculateProfit();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Memuat data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+    <div className="min-h-screen bg-slate-100 p-6">
       <div className="max-w-6xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <button className="flex items-center gap-2 text-slate-600 hover:text-slate-900 mb-4 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">Kembali</span>
-          </button>
-          <div className="flex items-center gap-3">
-            <div className="bg-blue-600 p-3 rounded-xl shadow-lg">
-              <Package className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-slate-900">Tambah Produk Baru</h1>
-              <p className="text-slate-600 mt-1">Masukkan detail produk dengan lengkap dan benar</p>
-            </div>
-          </div>
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Form Section */}
           <div className="lg:col-span-2">
@@ -171,40 +277,67 @@ export default function AddProduct() {
                   </div>
                 </div>
 
-                {/* Harga Beli & Harga Jual */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Harga Beli <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">Rp</span>
-                      <input
-                        type="number"
-                        value={formData.cost}
-                        onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
-                        placeholder="0"
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                      />
-                    </div>
+               {/* Harga Beli & Harga Jual */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Harga Beli */}
+                <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Harga Beli <span className="text-red-500">*</span>
+                </label>
+
+                <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
+                  
+                  {/* PREFIX */}
+                  <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
+                    Rp
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Harga Jual <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 font-medium">Rp</span>
-                      <input
-                        type="number"
-                        value={formData.price}
-                        onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-                        placeholder="0"
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                      />
-                    </div>
+                  {/* INPUT */}
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formData.cost}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        cost: e.target.value.replace(/\D/g, "")
+                      })
+                    }
+                    placeholder="0"
+                    className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
+                  />
+                </div>
+              </div>
+
+                {/* Harga Jual */}
+                <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">
+                  Harga Jual <span className="text-red-500">*</span>
+                </label>
+                  <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
+                  {/* PREFIX */}
+                  <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
+                    Rp
+                  </div>
+
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={formData.price}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          price: e.target.value.replace(/\D/g, "")
+                        })
+                      }
+                      placeholder="0"
+                      className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
+                    />
                   </div>
                 </div>
+              </div>
+
 
                 {/* Stok Awal & Stok Minimum */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -261,7 +394,7 @@ export default function AddProduct() {
                 <div className="flex items-center gap-3 pt-4 border-t border-slate-200">
                   <button
                     onClick={handleSubmit}
-                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl"
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-black font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl"
                   >
                     <Plus className="w-5 h-5" />
                     Tambah Produk
@@ -294,12 +427,12 @@ export default function AddProduct() {
             </div>
 
             {/* Unit Info Card */}
-            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl shadow-lg border border-blue-200 p-6">
+            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
               <div className="flex items-center gap-3 mb-4">
-                <div className="bg-blue-600 p-2 rounded-lg">
-                  <Ruler className="w-5 h-5 text-white" />
+                <div className="bg-blue-100 p-2 rounded-lg">
+                  <Info className="w-5 h-5 text-blue-600" />
                 </div>
-                <h3 className="font-semibold text-slate-900">Informasi Satuan</h3>
+                <h3 className="font-semibold text-slate-900">Info</h3>
               </div>
               
               {selectedUnit ? (
@@ -349,7 +482,7 @@ export default function AddProduct() {
             {/* Profit Calculation Card */}
             {formData.price && formData.cost && (
               <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border border-green-200 p-6">
-                <h3 className="font-semibold text-slate-900 mb-3">💰 Perhitungan Keuntungan</h3>
+                <h3 className="font-semibold text-slate-900 mb-3">Perhitungan Keuntungan</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-600">Harga Beli:</span>
