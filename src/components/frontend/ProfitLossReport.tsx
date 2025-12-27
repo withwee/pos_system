@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { usePOS } from "../../contexts/POSContext";
+import { useEffect, useMemo, useState } from "react";
+import api from "../../services/api";
 
 // UI Components (correct folder)
 import {
@@ -47,38 +47,77 @@ import {
 // Notifications
 import { toast } from "sonner";
 
+type Summary = {
+  revenue: number;
+  cogs: number;
+  grossProfit: number;
+};
 
-const monthlyData = [
-  { month: 'Jan', income: 45000000, expense: 32000000, profit: 13000000 },
-  { month: 'Feb', income: 52000000, expense: 35000000, profit: 17000000 },
-  { month: 'Mar', income: 48000000, expense: 33000000, profit: 15000000 },
-  { month: 'Apr', income: 61000000, expense: 38000000, profit: 23000000 },
-  { month: 'May', income: 55000000, expense: 36000000, profit: 19000000 },
-  { month: 'Jun', income: 72000000, expense: 42000000, profit: 30000000 },
-  { month: 'Jul', income: 68000000, expense: 40000000, profit: 28000000 },
-  { month: 'Aug', income: 75000000, expense: 43000000, profit: 32000000 },
-  { month: 'Sep', income: 82000000, expense: 47000000, profit: 35000000 },
-  { month: 'Oct', income: 79000000, expense: 45000000, profit: 34000000 },
-  { month: 'Nov', income: 85000000, expense: 48000000, profit: 37000000 }
-];
+type MonthlyRow = {
+  month: string;
+  revenue: number;
+  cogs: number;
+  profit: number;
+};
 
-const categoryData = [
-  { category: 'Makanan', profit: 125000000, percentage: 42 },
-  { category: 'Minuman', profit: 85000000, percentage: 28 },
-  { category: 'Sembako', profit: 65000000, percentage: 22 },
-  { category: 'Lainnya', profit: 25000000, percentage: 8 }
-];
+type ProductProfit = {
+  productId: string | number;
+  productName: string;
+  revenue: number;
+  cogs: number;
+  profit: number;
+};
 
 export default function ProfitLossReport() {
-  const { transactions } = usePOS();
-  const [timeFilter, setTimeFilter] = useState('monthly');
-  const [dateFrom, setDateFrom] = useState('2025-01-01');
-  const [dateTo, setDateTo] = useState('2025-11-09');
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  }, []);
 
-  const totalIncome = monthlyData.reduce((sum, d) => sum + d.income, 0);
-  const totalExpense = monthlyData.reduce((sum, d) => sum + d.expense, 0);
-  const totalProfit = totalIncome - totalExpense;
-  const profitMargin = ((totalProfit / totalIncome) * 100).toFixed(1);
+  const [timeFilter, setTimeFilter] = useState("monthly");
+  const [dateFrom, setDateFrom] = useState(monthStart);
+  const [dateTo, setDateTo] = useState(today);
+  const [summary, setSummary] = useState<Summary>({
+    revenue: 0,
+    cogs: 0,
+    grossProfit: 0,
+  });
+  const [monthlyData, setMonthlyData] = useState<MonthlyRow[]>([]);
+  const [products, setProducts] = useState<ProductProfit[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const profitMargin =
+    summary.revenue === 0
+      ? "0.0"
+      : ((summary.grossProfit / summary.revenue) * 100).toFixed(1);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const params = { start: dateFrom, end: dateTo };
+
+      const [summaryRes, monthlyRes, productRes] = await Promise.all([
+        api.get("/profitloss/summary", { params }),
+        api.get("/profitloss/monthly", { params }),
+        api.get("/profitloss/products", { params, paramsSerializer: (p) => new URLSearchParams({ ...p, limit: "6" }).toString() }),
+      ]);
+
+      setSummary(summaryRes.data || { revenue: 0, cogs: 0, grossProfit: 0 });
+      setMonthlyData(monthlyRes.data || []);
+      setProducts(productRes.data || []);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err.message || "Gagal memuat data laba rugi";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const handleExport = (format: string) => {
     toast.success(`Laporan laba rugi berhasil diekspor ke format ${format.toUpperCase()}`);
@@ -87,6 +126,22 @@ export default function ProfitLossReport() {
   const handleViewDetail = () => {
     toast.info('Menampilkan rincian detail transaksi');
   };
+
+  const formatMonthLabel = (value: string) => {
+    const [year, month] = value.split("-");
+    const date = new Date(Number(year), Number(month) - 1, 1);
+    return date.toLocaleString("id-ID", { month: "short", year: "numeric" });
+  };
+
+  const formatCurrency = (value: number) =>
+    `Rp ${Math.round(value).toLocaleString("id-ID")}`;
+
+  const chartData = monthlyData.map((item) => ({
+    month: formatMonthLabel(item.month),
+    income: item.revenue,
+    expense: item.cogs,
+    profit: item.profit,
+  }));
 
   return (
     <div className="space-y-6">
@@ -105,7 +160,7 @@ export default function ProfitLossReport() {
             </div>
             <p className="text-white/80 text-sm mb-1">Total Pendapatan</p>
             <h3 className="text-2xl text-white">
-              Rp {(totalIncome / 1000000).toFixed(1)}jt
+              {formatCurrency(summary.revenue)}
             </h3>
           </CardContent>
         </Card>
@@ -123,7 +178,7 @@ export default function ProfitLossReport() {
             </div>
             <p className="text-white/80 text-sm mb-1">Total Pengeluaran</p>
             <h3 className="text-2xl text-white">
-              Rp {(totalExpense / 1000000).toFixed(1)}jt
+              {formatCurrency(summary.cogs)}
             </h3>
           </CardContent>
         </Card>
@@ -141,7 +196,7 @@ export default function ProfitLossReport() {
             </div>
             <p className="text-white/80 text-sm mb-1">Laba Bersih</p>
             <h3 className="text-2xl text-white">
-              Rp {(totalProfit / 1000000).toFixed(1)}jt
+              {formatCurrency(summary.grossProfit)}
             </h3>
           </CardContent>
         </Card>
@@ -208,6 +263,14 @@ export default function ProfitLossReport() {
               <Label className="opacity-0">Actions</Label>
               <div className="flex gap-2">
                 <Button
+                  variant="outline"
+                  onClick={fetchData}
+                  disabled={loading}
+                  className="flex-1 rounded-xl"
+                >
+                  {loading ? "Memuat..." : "Terapkan"}
+                </Button>
+                <Button
                   onClick={() => handleExport('pdf')}
                   className="flex-1 bg-red-600 hover:bg-red-700 rounded-xl"
                 >
@@ -234,20 +297,24 @@ export default function ProfitLossReport() {
           <CardDescription>Perbandingan pendapatan dan pengeluaran per bulan</CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-              <XAxis dataKey="month" stroke="#6c757d" />
-              <YAxis stroke="#6c757d" />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
-                formatter={(value: number) => `Rp ${value.toLocaleString('id-ID')}`}
-              />
-              <Legend />
-              <Bar dataKey="income" fill="#28a745" radius={[8, 8, 0, 0]} name="Pendapatan" />
-              <Bar dataKey="expense" fill="#dc3545" radius={[8, 8, 0, 0]} name="Pengeluaran" />
-            </BarChart>
-          </ResponsiveContainer>
+          {chartData.length === 0 ? (
+            <p className="text-center text-gray-500 py-6">Belum ada data transaksi pada rentang tanggal ini</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis dataKey="month" stroke="#6c757d" />
+                <YAxis stroke="#6c757d" />
+                <Tooltip
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+                  formatter={(value: number) => `Rp ${value.toLocaleString('id-ID')}`}
+                />
+                <Legend />
+                <Bar dataKey="income" fill="#28a745" radius={[8, 8, 0, 0]} name="Pendapatan" />
+                <Bar dataKey="expense" fill="#dc3545" radius={[8, 8, 0, 0]} name="Pengeluaran" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
@@ -266,61 +333,74 @@ export default function ProfitLossReport() {
           </div>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={350}>
-            <LineChart data={monthlyData}>
-              <defs>
-                <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#007BFF" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#007BFF" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-              <XAxis dataKey="month" stroke="#6c757d" />
-              <YAxis stroke="#6c757d" />
-              <Tooltip
-                contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
-                formatter={(value: number) => `Rp ${value.toLocaleString('id-ID')}`}
-              />
-              <Line
-                type="monotone"
-                dataKey="profit"
-                stroke="#007BFF"
-                strokeWidth={3}
-                fill="url(#colorProfit)"
-                name="Laba Bersih"
-                dot={{ fill: '#007BFF', r: 6 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {chartData.length === 0 ? (
+            <p className="text-center text-gray-500 py-6">Belum ada data transaksi pada rentang tanggal ini</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={350}>
+              <LineChart data={chartData}>
+                <defs>
+                  <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#007BFF" stopOpacity={0.8}/>
+                    <stop offset="95%" stopColor="#007BFF" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis dataKey="month" stroke="#6c757d" />
+                <YAxis stroke="#6c757d" />
+                <Tooltip
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+                  formatter={(value: number) => `Rp ${value.toLocaleString('id-ID')}`}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="profit"
+                  stroke="#007BFF"
+                  strokeWidth={3}
+                  fill="url(#colorProfit)"
+                  name="Laba Bersih"
+                  dot={{ fill: '#007BFF', r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
-      {/* Profit by Category */}
+      {/* Profit by Product (Top) */}
       <Card className="rounded-2xl shadow-lg">
         <CardHeader>
-          <CardTitle>Laba Berdasarkan Kategori</CardTitle>
-          <CardDescription>Kontribusi laba dari setiap kategori produk</CardDescription>
+          <CardTitle>Produk Terbaik berdasarkan Laba</CardTitle>
+          <CardDescription>Kontribusi laba dari produk teratas</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {categoryData.map((item) => (
-              <div key={item.category}>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="">{item.category}</p>
-                  <div className="flex items-center gap-3">
-                    <p className="text-[#6c757d]">{item.percentage}%</p>
-                    <p className="">Rp {(item.profit / 1000000).toFixed(1)}jt</p>
+          {products.length === 0 ? (
+            <p className="text-center text-gray-500">Belum ada data produk</p>
+          ) : (
+            <div className="space-y-4">
+              {products.map((item) => {
+                const total = chartData.reduce((sum, d) => sum + d.profit, 0) || item.profit;
+                const percentage = total === 0 ? 0 : Math.min(100, Math.round((item.profit / total) * 100));
+
+                return (
+                  <div key={item.productId}>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="">{item.productName}</p>
+                      <div className="flex items-center gap-3">
+                        <p className="text-[#6c757d]">{percentage}%</p>
+                        <p className="">Rp {(item.profit / 1000000).toFixed(2)}jt</p>
+                      </div>
+                    </div>
+                    <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-[#007BFF] to-[#00BCD4] rounded-full transition-all"
+                        style={{ width: `${percentage}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
-                <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-[#007BFF] to-[#00BCD4] rounded-full transition-all"
-                    style={{ width: `${item.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

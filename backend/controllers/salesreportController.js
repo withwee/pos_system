@@ -1,18 +1,31 @@
 const db = require("../models");
-const { Transaction, TransactionItem, Product } = db;
-const { Op } = require("sequelize");
+const { Transaction, TransactionItem, Product, User } = db;
+const { Op, col } = require("sequelize");
 
 /**
  * SALES SUMMARY (TOTAL)
  */
 exports.summary = async (req, res) => {
   try {
-    const totalSales = await Transaction.sum("totalAmount");
-    const totalTransactions = await Transaction.count();
+    const [totalSales, totalTransactions, totalProducts, lowStock, totalUsers] =
+      await Promise.all([
+        Transaction.sum("totalAmount"),
+        Transaction.count(),
+        Product.count(),
+        Product.count({
+          where: {
+            stock: { [Op.lte]: col("minStock") },
+          },
+        }),
+        User.count(),
+      ]);
 
     res.json({
       totalSales: totalSales || 0,
-      totalTransactions
+      totalTransactions,
+      totalProducts,
+      lowStock,
+      totalUsers,
     });
   } catch (err) {
     console.error(err);
@@ -59,7 +72,7 @@ exports.byProduct = async (req, res) => {
       include: [
         {
           model: Product,
-          attributes: ["id", "name", "purchasePrice"]
+          attributes: ["id", "name", "cost"]
         }
       ]
     });
@@ -81,7 +94,7 @@ exports.byProduct = async (req, res) => {
 
       map[product.id].quantity += item.quantity;
       map[product.id].revenue += Number(item.subtotal);
-      map[product.id].cogs += item.quantity * Number(product.purchasePrice);
+      map[product.id].cogs += item.quantity * Number(product.cost);
       map[product.id].profit =
         map[product.id].revenue - map[product.id].cogs;
     });

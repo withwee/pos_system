@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { usePOS } from '../../contexts/POSContext';
 import { useAuth } from '../../contexts/AuthContext';
+import api from '../../services/api';
 
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
@@ -34,12 +35,13 @@ import {
 import { toast } from 'sonner';
 
 export default function SalesTransaction() {
-  const { products, cart, addToCart, removeFromCart, updateCartQuantity, clearCart, createTransaction } = usePOS();
+  const { products, cart, addToCart, removeFromCart, updateCartQuantity, clearCart, refreshProducts, refreshTransactions } = usePOS();
   const { user } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [discount, setDiscount] = useState(0);
   const [customerName, setCustomerName] = useState('Walk-in Customer');
+  const [applyTax, setApplyTax] = useState(true);
   const [showPayment, setShowPayment] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -54,7 +56,7 @@ export default function SalesTransaction() {
     0
   );
 
-  const tax = subtotal * 0.1;
+  const tax = applyTax ? subtotal * 0.11 : 0;
   const total = subtotal - discount + tax;
 
   const handleCheckout = () => {
@@ -65,30 +67,51 @@ export default function SalesTransaction() {
     setShowPayment(true);
   };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!selectedPayment) {
       toast.error('Pilih metode pembayaran');
       return;
     }
 
-    const invoice = createTransaction({
-      customer: customerName,
-      items: cart,
-      subtotal,
-      discount,
-      tax,
-      total,
-      paymentMethod: selectedPayment,
-      status: 'Completed',
-      cashier: user?.name || 'Admin',
-    });
+    try {
+      const methodMap: Record<string, string> = {
+        Tunai: 'cash',
+        'Transfer Bank': 'debit',
+        'E-Wallet': 'qris',
+        'Kartu Kredit': 'credit',
+        cash: 'cash',
+        debit: 'debit',
+        credit: 'credit',
+        qris: 'qris',
+      };
 
-    setInvoiceNo(invoice);
-    clearCart();
-    setDiscount(0);
-    setCustomerName('Walk-in Customer');
-    setShowPayment(false);
-    setShowSuccess(true);
+      const normalizedMethod = methodMap[selectedPayment] || 'cash';
+
+      const payload = {
+        paymentMethod: normalizedMethod,
+        customerName: customerName || 'Walk-in Customer',
+        items: cart.map((item) => ({
+          productId: Number(item.product.id),
+          quantity: item.quantity,
+        })),
+      };
+
+      const res = await api.post('/transactions', payload);
+      const inv = res.data?.transactionNumber || res.data?.transactionId || 'Berhasil';
+
+      setInvoiceNo(inv);
+      clearCart();
+      setDiscount(0);
+      setCustomerName('Walk-in Customer');
+      setShowPayment(false);
+      setShowSuccess(true);
+      await refreshProducts();
+      await refreshTransactions();
+      toast.success('Transaksi berhasil dicatat');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err.message || 'Gagal memproses transaksi';
+      toast.error(msg);
+    }
   };
 
   const paymentMethods = [
@@ -258,7 +281,14 @@ export default function SalesTransaction() {
               </div>
 
               <div className="flex justify-between">
-                <p className="text-sm text-[#6c757d]">Pajak (10%)</p>
+                <label className="flex items-center gap-2 text-sm text-[#6c757d]">
+                  <input
+                    type="checkbox"
+                    checked={applyTax}
+                    onChange={(e) => setApplyTax(e.target.checked)}
+                  />
+                  Pajak 11%
+                </label>
                 <p>Rp {tax.toLocaleString('id-ID')}</p>
               </div>
 

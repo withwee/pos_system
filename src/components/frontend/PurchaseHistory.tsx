@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { usePOS } from '../../contexts/POSContext';
+import "./purchase-history.css";
 
 // UI COMPONENTS
 import {
@@ -13,14 +14,6 @@ import {
 
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../ui/select";
 
 import {
   Table,
@@ -49,16 +42,21 @@ import { toast } from "sonner";
 export default function PurchaseHistory() {
   const { purchases } = usePOS();
   const [searchTerm, setSearchTerm] = useState('');
-  const [supplierFilter, setSupplierFilter] = useState('all');
   const [selectedPurchase, setSelectedPurchase] = useState<typeof purchases[0] | null>(null);
 
-  const suppliers = Array.from(new Set(purchases.map(p => p.supplier)));
+  const summary = useMemo(() => {
+    const totalItems = purchases.reduce((acc, item) => acc + item.quantity, 0);
+    const totalCost = purchases.reduce((acc, item) => acc + item.totalCost, 0);
+    return { totalItems, totalCost };
+  }, [purchases]);
 
   const filteredPurchases = purchases.filter(purchase => {
-    const matchesSearch = purchase.product.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         purchase.supplier.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesSupplier = supplierFilter === 'all' || purchase.supplier === supplierFilter;
-    return matchesSearch && matchesSupplier;
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      purchase.product.toLowerCase().includes(term) ||
+      purchase.addedBy.toLowerCase().includes(term)
+    );
   });
 
   const handleExport = (format: string) => {
@@ -66,21 +64,21 @@ export default function PurchaseHistory() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="purchase-history">
       {/* Controls */}
-      <Card className="rounded-2xl shadow-lg">
+      <Card className="purchase-history__card">
         <CardHeader>
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="purchase-history__header">
             <div>
               <CardTitle>Riwayat Pembelian</CardTitle>
               <CardDescription>Daftar semua pembelian produk yang telah dilakukan</CardDescription>
             </div>
-            <div className="flex items-center gap-3">
-              <Button onClick={() => handleExport('pdf')} className="bg-red-600 hover:bg-red-700 rounded-xl">
+            <div className="purchase-history__actions">
+              <Button onClick={() => handleExport('pdf')} className="purchase-history__button purchase-history__button--pdf">
                 <Download className="w-4 h-4 mr-2" />
                 PDF
               </Button>
-              <Button onClick={() => handleExport('excel')} className="bg-green-600 hover:bg-green-700 rounded-xl">
+              <Button onClick={() => handleExport('excel')} className="purchase-history__button purchase-history__button--excel">
                 <Download className="w-4 h-4 mr-2" />
                 Excel
               </Button>
@@ -88,50 +86,50 @@ export default function PurchaseHistory() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col md:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6c757d]" />
-              <Input
-                placeholder="Cari produk atau supplier..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 rounded-xl"
-              />
+          <div className="purchase-history__summary">
+            <div className="purchase-history__summary-item">
+              <span>Total transaksi</span>
+              <strong>{purchases.length}</strong>
             </div>
-            <Select value={supplierFilter} onValueChange={setSupplierFilter}>
-              <SelectTrigger className="w-full md:w-48 rounded-xl">
-                <SelectValue placeholder="Semua Supplier" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Supplier</SelectItem>
-                {suppliers.map((supplier) => (
-                  <SelectItem key={supplier} value={supplier}>{supplier}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="purchase-history__summary-item">
+              <span>Total item</span>
+              <strong>{summary.totalItems}</strong>
+            </div>
+            <div className="purchase-history__summary-item">
+              <span>Total biaya</span>
+              <strong>Rp {summary.totalCost.toLocaleString('id-ID')}</strong>
+            </div>
+          </div>
+          <div className="purchase-history__search">
+            <Search className="purchase-history__search-icon" />
+            <Input
+              placeholder="Cari produk atau petugas..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="purchase-history__search-input"
+            />
           </div>
         </CardContent>
       </Card>
 
       {/* Table */}
-      <Card className="rounded-2xl shadow-lg">
+      <Card className="purchase-history__card">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="purchase-history__table">
+            <Table className="purchase-history__table-inner">
               <TableHeader>
                 <TableRow>
                   <TableHead>Tanggal</TableHead>
                   <TableHead>Produk</TableHead>
                   <TableHead>Jumlah</TableHead>
                   <TableHead>Total Biaya</TableHead>
-                  <TableHead>Supplier</TableHead>
                   <TableHead>Ditambahkan Oleh</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredPurchases.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-[#6c757d]">
+                    <TableCell colSpan={5} className="purchase-history__empty">
                       Tidak ada data pembelian
                     </TableCell>
                   </TableRow>
@@ -151,7 +149,6 @@ export default function PurchaseHistory() {
                       <TableCell>{purchase.product}</TableCell>
                       <TableCell>{purchase.quantity} unit</TableCell>
                       <TableCell>Rp {purchase.totalCost.toLocaleString('id-ID')}</TableCell>
-                      <TableCell>{purchase.supplier}</TableCell>
                       <TableCell>{purchase.addedBy}</TableCell>
                     </TableRow>
                   ))
@@ -192,10 +189,6 @@ export default function PurchaseHistory() {
                 <div>
                   <p className="text-sm text-[#6c757d] mb-1">Total Biaya</p>
                   <p className="">Rp {selectedPurchase.totalCost.toLocaleString('id-ID')}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-[#6c757d] mb-1">Supplier</p>
-                  <p className="">{selectedPurchase.supplier}</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#6c757d] mb-1">Ditambahkan Oleh</p>

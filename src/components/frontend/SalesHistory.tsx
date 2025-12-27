@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePOS } from '../../contexts/POSContext';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -29,14 +29,25 @@ import { Search, Download, FileText, Calendar, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function SalesHistory() {
-  const { transactions } = usePOS();
+  const { transactions, refreshTransactions } = usePOS();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTransaction, setSelectedTransaction] =
     useState<typeof transactions[0] | null>(null);
 
-  const filteredTransactions = transactions.filter((transaction) =>
-    transaction.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    transaction.customer.toLowerCase().includes(searchTerm.toLowerCase())
+  useEffect(() => {
+    refreshTransactions();
+  }, [refreshTransactions]);
+
+  const filteredTransactions = useMemo(
+    () =>
+      transactions
+        .slice()
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .filter((transaction) =>
+          transaction.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          transaction.customer.toLowerCase().includes(searchTerm.toLowerCase())
+        ),
+    [transactions, searchTerm]
   );
 
   const handleExport = (format: string) => {

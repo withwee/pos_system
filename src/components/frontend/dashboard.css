@@ -1,0 +1,237 @@
+.dashboard {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.dashboard__hero {
+  background: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+  color: #fff;
+  border-radius: 20px;
+  padding: 24px;
+  box-shadow: 0 16px 40px rgba(37, 99, 235, 0.2);
+}
+
+.dashboard__hero-date {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-bottom: 6px;
+}
+
+.dashboard__hero-title {
+  font-size: 24px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.dashboard__hero-subtitle {
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+.dashboard__stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.stat-card {
+  border-radius: 18px;
+  padding: 20px;
+  color: #fff;
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 110px;
+}
+
+.stat-card--sales {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+}
+
+.stat-card--profit {
+  background: linear-gradient(135deg, #06b6d4 0%, #0f766e 100%);
+}
+
+.stat-card--products {
+  background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+}
+
+.stat-card--transactions {
+  background: linear-gradient(135deg, #10b981 0%, #16a34a 100%);
+}
+
+.stat-card__label {
+  font-size: 13px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+}
+
+.stat-card__value {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.stat-card__delta {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.stat-card__icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-card__icon-svg {
+  width: 22px;
+  height: 22px;
+}
+
+.dashboard__panel {
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.dashboard__filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.dashboard__panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.dashboard__panel-subtitle {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.dashboard__filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboard__select {
+  min-width: 120px;
+  background: #fff;
+  border-radius: 12px;
+}
+
+.dashboard__date {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: #fff;
+}
+
+.dashboard__button {
+  border-radius: 12px;
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.dashboard__button--pdf {
+  background: #dc2626;
+  color: #fff;
+}
+
+.dashboard__button--excel {
+  background: #16a34a;
+  color: #fff;
+}
+
+.dashboard__button-icon {
+  width: 14px;
+  height: 14px;
+  margin-right: 6px;
+}
+
+.dashboard__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+.dashboard__card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px 20px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
+}
+
+.dashboard__card-header {
+  margin-bottom: 12px;
+}
+
+.dashboard__card-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.dashboard__card-subtitle {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.dashboard__card-body {
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.dashboard__card-body--tall {
+  height: 320px;
+}
+
+.dashboard__card-body--medium {
+  height: 280px;
+}
+
+.dashboard__empty {
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+  margin-top: 40px;
+}
+
+@media (min-width: 768px) {
+  .dashboard__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard__card-body--medium {
+    height: 300px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard__stats {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}

@@ -1,4 +1,4 @@
-const { Transaction, TransactionItem, Product, sequelize } = require("../models");
+const { Transaction, TransactionItem, Product } = require("../models");
 const { Op, fn, col, literal } = require("sequelize");
 
 exports.summary = async (req, res) => {
@@ -26,10 +26,7 @@ exports.summary = async (req, res) => {
     const cogsResult = await TransactionItem.findOne({
       attributes: [
         [
-          fn(
-            "SUM",
-            literal("transaction_items.quantity * products.purchasePrice")
-          ),
+          fn("SUM", literal("TransactionItem.quantity * Product.cost")),
           "cogs"
         ]
       ],
@@ -62,47 +59,6 @@ exports.summary = async (req, res) => {
   }
 };
 
-exports.monthly = async (req, res) => {
-  try {
-    const data = await TransactionItem.findAll({
-      attributes: [
-        [fn("DATE_FORMAT", col("Transaction.createdAt"), "%Y-%m"), "month"],
-        [fn("SUM", col("TransactionItem.subtotal")), "revenue"],
-        [
-          fn(
-            "SUM",
-            literal("TransactionItem.quantity * Product.purchasePrice")
-          ),
-          "cogs"
-        ]
-      ],
-      include: [
-        { model: Product, attributes: [] },
-        { model: Transaction, attributes: [] }
-      ],
-      group: [literal("month")],
-      order: [[literal("month"), "ASC"]],
-      raw: true
-    });
-
-    res.json(
-      data.map(row => ({
-        month: row.month,
-        revenue: Number(row.revenue),
-        cogs: Number(row.cogs),
-        profit: Number(row.revenue) - Number(row.cogs)
-      }))
-    );
-
-  } catch (err) {
-    console.error("Monthly profit error:", err);
-    res.status(500).json({ message: "Failed to load monthly profit" });
-  }
-};
-
-const { TransactionItem, Product, Transaction } = require("../models");
-const { Op, fn, col, literal } = require("sequelize");
-
 exports.productProfit = async (req, res) => {
   try {
     const { start, end, limit = 5, type = "top" } = req.query;
@@ -122,13 +78,7 @@ exports.productProfit = async (req, res) => {
         [col("Product.id"), "productId"],
         [col("Product.name"), "productName"],
         [fn("SUM", col("TransactionItem.subtotal")), "revenue"],
-        [
-          fn(
-            "SUM",
-            literal("TransactionItem.quantity * Product.purchasePrice")
-          ),
-          "cogs"
-        ]
+        [fn("SUM", literal("TransactionItem.quantity * Product.cost")), "cogs"]
       ],
       include: [
         {
@@ -145,7 +95,7 @@ exports.productProfit = async (req, res) => {
       order: [
         [
           literal(
-            "(SUM(TransactionItem.subtotal) - SUM(TransactionItem.quantity * Product.purchasePrice))"
+            "(SUM(TransactionItem.subtotal) - SUM(TransactionItem.quantity * Product.cost))"
           ),
           type === "bottom" ? "ASC" : "DESC"
         ]
@@ -172,5 +122,48 @@ exports.productProfit = async (req, res) => {
   } catch (err) {
     console.error("Product profit error:", err);
     res.status(500).json({ message: "Failed to load product profit" });
+  }
+};
+
+exports.monthly = async (req, res) => {
+  try {
+    const { start, end } = req.query;
+
+    const trxWhere = {};
+    if (start && end) {
+      trxWhere.createdAt = {
+        [Op.between]: [
+          new Date(`${start} 00:00:00`),
+          new Date(`${end} 23:59:59`),
+        ],
+      };
+    }
+
+    const data = await TransactionItem.findAll({
+      attributes: [
+        [fn("DATE_FORMAT", col("Transaction.createdAt"), "%Y-%m"), "month"],
+        [fn("SUM", col("TransactionItem.subtotal")), "revenue"],
+        [fn("SUM", literal("TransactionItem.quantity * Product.cost")), "cogs"],
+      ],
+      include: [
+        { model: Product, attributes: [] },
+        { model: Transaction, attributes: [], where: trxWhere },
+      ],
+      group: [literal("month")],
+      order: [[literal("month"), "ASC"]],
+      raw: true,
+    });
+
+    res.json(
+      data.map((row) => ({
+        month: row.month,
+        revenue: Number(row.revenue),
+        cogs: Number(row.cogs),
+        profit: Number(row.revenue) - Number(row.cogs),
+      }))
+    );
+  } catch (err) {
+    console.error("Monthly profit error:", err);
+    res.status(500).json({ message: "Failed to load monthly profit" });
   }
 };

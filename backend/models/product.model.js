@@ -41,6 +41,9 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: 5,
       },
+      expiryDate: {
+        type: DataTypes.DATEONLY,
+      },
       unitId: { // ⬅️ TAMBAHAN BARU
         type: DataTypes.INTEGER,
         allowNull: false,

@@ -42,9 +42,12 @@ export default function StockReport() {
   );
 
   const getStockStatus = (stock: number, minStock: number) => {
-    if (stock === 0) return "out";
-    if (stock <= minStock) return "low";
-    return "sufficient";
+    const currentStock = Number(stock);
+    const minimumStock = Number(minStock);
+
+    if (currentStock === 0) return "out";
+    if (currentStock > minimumStock) return "sufficient";
+    return "low";
   };
 
   const getStatusConfig = (status: string) => {
@@ -57,9 +60,9 @@ export default function StockReport() {
       },
       low: {
         label: "Stok Rendah",
-        color: "bg-yellow-500",
+        color: "bg-orange-500",
         icon: AlertCircle,
-        textColor: "text-yellow-600",
+        textColor: "text-orange-600",
       },
       sufficient: {
         label: "Cukup",
@@ -250,7 +253,6 @@ export default function StockReport() {
                   <TableHead>Kategori</TableHead>
                   <TableHead>Stok Saat Ini</TableHead>
                   <TableHead>Stok Minimum</TableHead>
-                  <TableHead>Supplier</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Aksi</TableHead>
                 </TableRow>
@@ -260,7 +262,7 @@ export default function StockReport() {
                 {filteredProducts.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={6}
                       className="text-center py-8 text-gray-500"
                     >
                       Tidak ada data
@@ -296,7 +298,6 @@ export default function StockReport() {
                         </TableCell>
 
                         <TableCell>{p.minStock} unit</TableCell>
-                        <TableCell>{p.supplier}</TableCell>
 
                         <TableCell>
                           <Badge
@@ -308,14 +309,18 @@ export default function StockReport() {
                         </TableCell>
 
                         <TableCell>
-                          {status !== "sufficient" && (
+                          {status !== "sufficient" ? (
                             <Button
                               size="sm"
-                              className="bg-blue-600 hover:bg-blue-700 rounded-lg"
+                              className="!bg-blue-600 !text-white hover:!bg-blue-700 rounded-lg shadow-sm"
                               onClick={() => handleRestock(p)}
                             >
                               Restock
                             </Button>
+                          ) : (
+                            <Badge className="bg-slate-100 text-slate-600 border border-slate-200">
+                              Cukup
+                            </Badge>
                           )}
                         </TableCell>
                       </TableRow>

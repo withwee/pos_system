@@ -82,6 +82,7 @@ exports.create = async (req, res) => {
     const {
       name,
       description,
+      expiryDate,
       sku,
       price,
       cost,
@@ -102,6 +103,7 @@ exports.create = async (req, res) => {
     const product = await Product.create({
       name,
       description,
+      expiryDate,
       sku,
       price,
       cost,

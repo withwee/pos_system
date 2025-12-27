@@ -1,5 +1,7 @@
+// src/components/pembelian/AddProduct.tsx
 import { useState, useEffect } from "react";
-import { ArrowLeft, Package, Plus, RotateCcw, Ruler, Info, Loader2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Loader2, Plus, RotateCcw, Ruler, Info, Package } from "lucide-react";
 import api from "../../services/api";
 import { usePOS } from "../../contexts/POSContext";
 
@@ -25,19 +27,21 @@ interface FormData {
   cost: string;
   stock: string;
   minStock: string;
+  expiryDate: string;
   description: string;
 }
 
-interface FormErrors {
-  [key: string]: string;
-}
+const formatCurrency = (value: number) =>
+  `Rp ${Math.round(value).toLocaleString("id-ID")}`;
 
 export default function AddProduct() {
-  const { addProduct } = usePOS();
+  const navigate = useNavigate();
+  const { addProduct, refreshProducts, updateProduct, products, addPurchaseEntry } = usePOS();
   const [categories, setCategories] = useState<Category[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedExistingId, setSelectedExistingId] = useState("");
 
   const [formData, setFormData] = useState<FormData>({
     name: "",
@@ -48,27 +52,26 @@ export default function AddProduct() {
     cost: "",
     stock: "",
     minStock: "",
+    expiryDate: "",
     description: "",
   });
 
-useEffect(() => {
+  useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
 
         const [categoriesRes, unitsRes] = await Promise.all([
           api.get("/categories"),
-          api.get("/units")
+          api.get("/units"),
         ]);
 
-        const categoriesData = categoriesRes.data.success 
-          ? categoriesRes.data.data 
+        const categoriesData = categoriesRes.data.success
+          ? categoriesRes.data.data
           : categoriesRes.data;
         setCategories(categoriesData || []);
 
-        const unitsData = unitsRes.data.success 
-          ? unitsRes.data.data 
-          : unitsRes.data;
+        const unitsData = unitsRes.data.success ? unitsRes.data.data : unitsRes.data;
         setUnits(unitsData || []);
 
         const defaultUnit = unitsData.find((u: Unit) => u.symbol === "pcs");
@@ -86,36 +89,137 @@ useEffect(() => {
     fetchData();
   }, []);
 
-  const validateForm = (): boolean => {
-    const newErrors: FormErrors = {};
-
-    if (!formData.name.trim()) newErrors.name = "Nama produk wajib diisi";
-    if (!formData.categoryId) newErrors.categoryId = "Kategori wajib dipilih";
-    if (!formData.unitId) newErrors.unitId = "Satuan wajib dipilih";
-    if (!formData.sku.trim()) newErrors.sku = "SKU wajib diisi";
-    if (!formData.price) newErrors.price = "Harga jual wajib diisi";
-    if (!formData.cost) newErrors.cost = "Harga beli wajib diisi";
-    if (!formData.stock) newErrors.stock = "Stok awal wajib diisi";
-
-    if (formData.price && formData.cost) {
-      if (Number(formData.price) <= Number(formData.cost)) {
-        newErrors.price = "Harga jual harus lebih besar dari harga beli";
-      }
+  useEffect(() => {
+    if (!selectedExistingId) {
+      return;
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    const existing = products.find((p) => p.id === selectedExistingId);
+    if (!existing) {
+      return;
+    }
+
+    const categoryId =
+      existing.categoryId ??
+      categories.find((cat) => cat.name === existing.category)?.id;
+    const unitId =
+      existing.unitId ??
+      units.find((unit) => unit.symbol === existing.unitSymbol)?.id ??
+      units.find((unit) => unit.name === existing.unitName)?.id;
+
+    setFormData({
+      name: existing.name || "",
+      categoryId: categoryId ? String(categoryId) : "",
+      unitId: unitId ? String(unitId) : "",
+      sku: existing.sku || "",
+      price:
+        existing.salePrice !== undefined ? String(existing.salePrice) : "",
+      cost:
+        existing.purchasePrice !== undefined
+          ? String(existing.purchasePrice)
+          : "",
+      stock: "",
+      minStock: existing.minStock ? String(existing.minStock) : "",
+      expiryDate: existing.expiryDate || "",
+      description: existing.description || "",
+    });
+  }, [selectedExistingId, products, categories, units]);
+
+  const validateForm = (): boolean => {
+    if (!formData.name.trim()) {
+      alert("Nama produk wajib diisi");
+      return false;
+    }
+    if (!formData.categoryId) {
+      alert("Kategori wajib dipilih");
+      return false;
+    }
+    if (!formData.unitId) {
+      alert("Satuan wajib dipilih");
+      return false;
+    }
+    if (!formData.sku.trim()) {
+      alert("SKU wajib diisi");
+      return false;
+    }
+    if (!formData.price) {
+      alert("Harga jual wajib diisi");
+      return false;
+    }
+    if (!formData.cost) {
+      alert("Harga beli wajib diisi");
+      return false;
+    }
+    if (!formData.stock) {
+      alert("Stok awal wajib diisi");
+      return false;
+    }
+    if (Number(formData.stock) <= 0) {
+      alert("Stok harus lebih dari 0");
+      return false;
+    }
+
+    if (Number(formData.price) <= Number(formData.cost)) {
+      alert("Harga jual harus lebih besar dari harga beli");
+      return false;
+    }
+
+    return true;
   };
 
   const handleSubmit = async () => {
     if (!validateForm()) {
-      alert("Mohon perbaiki kesalahan pada form");
+      return;
+    }
+
+    // Cek token
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("Sesi Anda telah berakhir. Silakan login kembali.");
+      navigate("/login");
       return;
     }
 
     setSubmitting(true);
 
     try {
+      if (selectedExistingId) {
+        const existing = products.find((p) => p.id === selectedExistingId);
+        if (!existing) {
+          alert("Produk tidak ditemukan");
+          return;
+        }
+
+        const additionalStock = parseFloat(formData.stock);
+        const updatedStock = existing.stock + additionalStock;
+
+        await updateProduct(existing.id, {
+          stock: updatedStock,
+          purchasePrice: parseFloat(formData.cost),
+          salePrice: parseFloat(formData.price),
+          minStock: formData.minStock
+            ? parseFloat(formData.minStock)
+            : existing.minStock,
+          expiryDate: formData.expiryDate || existing.expiryDate,
+          description: formData.description.trim() || existing.description,
+        });
+
+        addPurchaseEntry({
+          productId: existing.id,
+          date: new Date().toISOString().slice(0, 10),
+          product: existing.name,
+          quantity: additionalStock,
+          totalCost: parseFloat(formData.cost) * additionalStock,
+          supplier: existing.supplier || "Unknown",
+          addedBy: "Admin",
+        });
+
+        await refreshProducts();
+        alert("ƒo. Stok produk berhasil diperbarui!");
+        setFormData((prev) => ({ ...prev, stock: "" }));
+        return;
+      }
+
       const payload = {
         name: formData.name.trim(),
         categoryId: parseInt(formData.categoryId),
@@ -125,33 +229,38 @@ useEffect(() => {
         cost: parseFloat(formData.cost),
         stock: parseFloat(formData.stock),
         minStock: formData.minStock ? parseFloat(formData.minStock) : 5,
+        expiryDate: formData.expiryDate || null,
         description: formData.description.trim() || null,
       };
 
-      const saved = await addProduct(payload);
+      console.log("Sending payload:", payload);
 
-      if (!saved) {
-        throw new Error("Gagal menyimpan produk");
-      }
+      await addProduct(payload);
 
-      alert("Produk berhasil ditambahkan!");
+      alert("ƒo. Produk berhasil ditambahkan!");
       handleReset();
+
+      // Optional: redirect ke halaman daftar produk
+      // navigate("/products");
+
     } catch (error: any) {
       console.error("Submit error:", error);
+      
       const status = error?.response?.status;
       const apiMsg = error?.response?.data?.message;
-      let errorMessage =
-        apiMsg ||
-        error?.message ||
-        "Gagal menambahkan produk";
 
       if (status === 401) {
-        errorMessage = apiMsg || "Token tidak valid atau sudah kedaluwarsa. Silakan login ulang.";
+        alert("❌ Token tidak valid atau sudah kedaluwarsa. Silakan login ulang.");
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+        navigate("/login");
       } else if (status === 403) {
-        errorMessage = apiMsg || "Akses ditolak. Hanya admin yang boleh menambah produk.";
+        alert("❌ Akses ditolak. Hanya admin yang boleh menambah produk.");
+      } else if (status === 400 && apiMsg?.includes("SKU")) {
+        alert("❌ SKU sudah digunakan. Gunakan SKU yang berbeda.");
+      } else {
+        alert(`❌ ${apiMsg || "Gagal menambahkan produk"}`);
       }
-
-      alert(errorMessage);
     } finally {
       setSubmitting(false);
     }
@@ -161,27 +270,25 @@ useEffect(() => {
     setFormData({
       name: "",
       categoryId: "",
-      unitId: units.find(u => u.symbol === "pcs")?.id.toString() || "",
+      unitId: units.find((u) => u.symbol === "pcs")?.id.toString() || "",
       sku: "",
       price: "",
       cost: "",
       stock: "",
       minStock: "",
+      expiryDate: "",
       description: "",
     });
-    setErrors({});
   };
 
   const selectedUnit = units.find((u) => u.id.toString() === formData.unitId);
-
-  const calculateProfit = () => {
-    if (!formData.price || !formData.cost) return null;
-    const profit = Number(formData.price) - Number(formData.cost);
-    const margin = ((profit / Number(formData.price)) * 100).toFixed(1);
-    return { profit, margin };
-  };
-  const [errors, setErrors] = useState<FormErrors>({});
-  const profitData = calculateProfit();
+  const priceValue = Number(formData.price || 0);
+  const costValue = Number(formData.cost || 0);
+  const stockValue = Number(formData.stock || 0);
+  const marginValue = Math.max(priceValue - costValue, 0);
+  const totalCost = costValue * stockValue;
+  const totalRevenue = priceValue * stockValue;
+  const totalProfit = Math.max(totalRevenue - totalCost, 0);
 
   if (loading) {
     return (
@@ -202,12 +309,23 @@ useEffect(() => {
           <div className="lg:col-span-2">
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200">
               <div className="p-6 border-b border-slate-200">
-                <h2 className="text-xl font-semibold text-slate-900">Informasi Produk</h2>
-                <p className="text-sm text-slate-600 mt-1">Data produk untuk sistem inventory</p>
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+                    <Package className="w-4 h-4" />
+                  </span>
+                  <div>
+                    <h2 className="text-xl font-semibold text-slate-900">
+                      Input Barang
+                    </h2>
+                    <p className="text-sm text-slate-600 mt-1">
+                      Tambahkan produk baru ke sistem (bukan untuk restok)
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="p-6 space-y-6">
-                {/* Nama & SKU */}
+                {/* Nama & Kategori */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
@@ -216,35 +334,25 @@ useEffect(() => {
                     <input
                       type="text"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Contoh: Beras Premium"
+                      readOnly={!!selectedExistingId}
+                      onChange={(e) =>
+                        setFormData({ ...formData, name: e.target.value })
+                      }
+                      placeholder="Masukkan nama produk"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
                     />
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      SKU <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.sku}
-                      onChange={(e) => setFormData({ ...formData, sku: e.target.value })}
-                      placeholder="Contoh: BRS-001"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Kategori & Satuan */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
                       Kategori <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={formData.categoryId}
-                      onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                      disabled={!!selectedExistingId}
+                      onChange={(e) =>
+                        setFormData({ ...formData, categoryId: e.target.value })
+                      }
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none cursor-pointer"
                     >
                       <option value="">Pilih kategori</option>
@@ -255,6 +363,63 @@ useEffect(() => {
                       ))}
                     </select>
                   </div>
+                </div>
+
+                {/* SKU & Satuan */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      SKU <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.sku}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const matched = products.find(
+                          (p) => p.sku?.toLowerCase() === value.toLowerCase()
+                        );
+
+                        if (matched) {
+                          setSelectedExistingId(matched.id);
+                          setFormData((prev) => ({ ...prev, sku: value }));
+                          return;
+                        }
+
+                        if (selectedExistingId) {
+                          setSelectedExistingId("");
+                          setFormData({
+                            name: "",
+                            categoryId: "",
+                            unitId:
+                              units.find((u) => u.symbol === "pcs")?.id.toString() ||
+                              "",
+                            sku: value,
+                            price: "",
+                            cost: "",
+                            stock: "",
+                            minStock: "",
+                            expiryDate: "",
+                            description: "",
+                          });
+                        } else {
+                          setFormData((prev) => ({ ...prev, sku: value }));
+                        }
+                      }}
+                      list="sku-options"
+                      placeholder="Contoh: BRS-001"
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                    />
+                    <datalist id="sku-options">
+                      {products
+                        .filter((product) => product.sku)
+                        .map((product) => (
+                          <option key={product.id} value={product.sku || ""}>
+                            {product.sku} - {product.name}
+                          </option>
+                        ))}
+                    </datalist>
+                  </div>
 
                   <div>
                     <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 mb-2">
@@ -263,7 +428,10 @@ useEffect(() => {
                     </label>
                     <select
                       value={formData.unitId}
-                      onChange={(e) => setFormData({ ...formData, unitId: e.target.value })}
+                      disabled={!!selectedExistingId}
+                      onChange={(e) =>
+                        setFormData({ ...formData, unitId: e.target.value })
+                      }
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none cursor-pointer"
                     >
                       <option value="">Pilih satuan</option>
@@ -276,82 +444,75 @@ useEffect(() => {
                   </div>
                 </div>
 
-               {/* Harga Beli & Harga Jual */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Harga Beli */}
-                <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Harga Beli <span className="text-red-500">*</span>
-                </label>
-
-                <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
-                  
-                  {/* PREFIX */}
-                  <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
-                    Rp
+                {/* Harga Beli & Harga Jual */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Harga Beli <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
+                      <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
+                        Rp
+                      </div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formData.cost}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            cost: e.target.value.replace(/\D/g, ""),
+                          })
+                        }
+                        placeholder="0"
+                        className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
+                      />
+                    </div>
                   </div>
 
-                  {/* INPUT */}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={formData.cost}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        cost: e.target.value.replace(/\D/g, "")
-                      })
-                    }
-                    placeholder="0"
-                    className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
-                  />
-                </div>
-              </div>
-
-                {/* Harga Jual */}
-                <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Harga Jual <span className="text-red-500">*</span>
-                </label>
-                  <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
-                  {/* PREFIX */}
-                  <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
-                    Rp
-                  </div>
-
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={formData.price}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          price: e.target.value.replace(/\D/g, "")
-                        })
-                      }
-                      placeholder="0"
-                      className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
-                    />
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">
+                      Harga Jual <span className="text-red-500">*</span>
+                    </label>
+                    <div className="flex items-stretch rounded-xl border border-slate-300 bg-slate-50 focus-within:ring-2 focus-within:ring-blue-500">
+                      <div className="flex items-center px-4 text-slate-600 font-medium border-r border-slate-300">
+                        Rp
+                      </div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={formData.price}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            price: e.target.value.replace(/\D/g, ""),
+                          })
+                        }
+                        placeholder="0"
+                        className="w-full px-4 py-3 bg-transparent outline-none text-right rounded-r-xl"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-
 
                 {/* Stok Awal & Stok Minimum */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      Stok Awal <span className="text-red-500">*</span>
+                      {selectedExistingId ? "Tambah Stok" : "Stok Awal"} <span className="text-red-500">*</span>
                       {selectedUnit && (
-                        <span className="text-slate-500 font-normal ml-1">({selectedUnit.symbol})</span>
+                        <span className="text-slate-500 font-normal ml-1">
+                          ({selectedUnit.symbol})
+                        </span>
                       )}
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       value={formData.stock}
-                      onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, stock: e.target.value })
+                      }
                       placeholder="0"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
                     />
@@ -361,18 +522,37 @@ useEffect(() => {
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
                       Stok Minimum
                       {selectedUnit && (
-                        <span className="text-slate-500 font-normal ml-1">({selectedUnit.symbol})</span>
+                        <span className="text-slate-500 font-normal ml-1">
+                          ({selectedUnit.symbol})
+                        </span>
                       )}
                     </label>
                     <input
                       type="number"
                       step="0.01"
                       value={formData.minStock}
-                      onChange={(e) => setFormData({ ...formData, minStock: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, minStock: e.target.value })
+                      }
                       placeholder="5"
                       className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
                     />
                   </div>
+                </div>
+
+                {/* Tanggal Kadaluarsa */}
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">
+                    Tanggal Kadaluarsa
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.expiryDate}
+                    onChange={(e) =>
+                      setFormData({ ...formData, expiryDate: e.target.value })
+                    }
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
+                  />
                 </div>
 
                 {/* Deskripsi */}
@@ -382,7 +562,9 @@ useEffect(() => {
                   </label>
                   <textarea
                     value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
                     placeholder="Deskripsi produk (opsional)"
                     rows={4}
                     className="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none resize-none"
@@ -394,7 +576,7 @@ useEffect(() => {
                   <button
                     onClick={handleSubmit}
                     disabled={submitting}
-                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-black font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-6 py-3 bg-blue-600 text font-semibold rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {submitting ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
@@ -405,7 +587,8 @@ useEffect(() => {
                   </button>
                   <button
                     onClick={handleReset}
-                    className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 font-semibold rounded-xl hover:bg-slate-200 transition-all"
+                    disabled={submitting}
+                    className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-700 font-semibold rounded-xl hover:bg-slate-200 transition-all disabled:opacity-60"
                   >
                     <RotateCcw className="w-4 h-4" />
                     Reset
@@ -416,101 +599,68 @@ useEffect(() => {
           </div>
 
           {/* Info Section */}
-          <div className="space-y-4">
-            {/* Status Card */}
+          <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-blue-100 p-2 rounded-lg">
-                  <Info className="w-5 h-5 text-blue-600" />
-                </div>
-                <h3 className="font-semibold text-slate-900">Status</h3>
+              <div className="flex items-center gap-2 mb-3">
+                <Info className="w-5 h-5 text-blue-600" />
+                <h3 className="text-lg font-semibold text-slate-900">Panduan Input</h3>
               </div>
-              <p className="text-sm text-slate-600 leading-relaxed">
-                Isi form untuk menambahkan produk baru ke inventory. Semua field yang bertanda (*) wajib diisi.
-              </p>
+              <ul className="text-sm text-slate-600 space-y-2">
+                <li>Pastikan SKU unik agar tidak bentrok dengan produk lain.</li>
+                <li>Harga jual harus lebih besar dari harga beli.</li>
+                <li>Stok minimum dipakai untuk peringatan stok menipis.</li>
+              </ul>
             </div>
 
-            {/* Unit Info Card */}
             <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="bg-blue-100 p-2 rounded-lg">
-                  <Info className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-semibold text-slate-900 mb-3">Ringkasan Data</h3>
+              <div className="space-y-2 text-sm text-slate-600">
+                <div className="flex items-center justify-between">
+                  <span>Total kategori</span>
+                  <span className="font-semibold text-slate-900">{categories.length}</span>
                 </div>
-                <h3 className="font-semibold text-slate-900">Info</h3>
+                <div className="flex items-center justify-between">
+                  <span>Total satuan</span>
+                  <span className="font-semibold text-slate-900">{units.length}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Satuan default</span>
+                  <span className="font-semibold text-slate-900">
+                    {selectedUnit ? `${selectedUnit.name} (${selectedUnit.symbol})` : "-"}
+                  </span>
+                </div>
               </div>
-              
-              {selectedUnit ? (
-                <div className="space-y-3">
-                  <div className="bg-white/60 backdrop-blur-sm rounded-xl p-4 border border-blue-200">
-                    <p className="text-xs font-semibold text-slate-600 mb-1">Satuan Terpilih</p>
-                    <p className="text-lg font-bold text-blue-600">{selectedUnit.name}</p>
-                    <p className="text-sm text-slate-600 mt-1">Simbol: <span className="font-semibold">{selectedUnit.symbol}</span></p>
-                  </div>
-                  
-                  <div className="text-sm text-slate-700 space-y-2">
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 mt-1">•</span>
-                      <span>Stok akan dicatat dalam satuan <strong>{selectedUnit.symbol}</strong></span>
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 mt-1">•</span>
-                      <span>Pastikan konsisten menggunakan satuan ini untuk produk sejenis</span>
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-sm text-slate-600 space-y-2">
-                  <p className="font-semibold text-slate-700 mb-3">💡 Tips Memilih Satuan:</p>
-                  <div className="space-y-2">
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 font-bold">•</span>
-                      <span><strong>kg/gr</strong> - untuk barang dengan berat (beras, gula, dll)</span>
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 font-bold">•</span>
-                      <span><strong>L/ml</strong> - untuk cairan (minyak, air, dll)</span>
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 font-bold">•</span>
-                      <span><strong>pcs</strong> - untuk barang satuan</span>
-                    </p>
-                    <p className="flex items-start gap-2">
-                      <span className="text-blue-600 font-bold">•</span>
-                      <span><strong>pack/box</strong> - untuk kemasan</span>
-                    </p>
-                  </div>
-                </div>
-              )}
             </div>
 
-            {/* Profit Calculation Card */}
-            {formData.price && formData.cost && (
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl shadow-lg border border-green-200 p-6">
-                <h3 className="font-semibold text-slate-900 mb-3">Perhitungan Keuntungan</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Harga Beli:</span>
-                    <span className="font-semibold text-slate-900">Rp {Number(formData.cost).toLocaleString('id-ID')}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Harga Jual:</span>
-                    <span className="font-semibold text-slate-900">Rp {Number(formData.price).toLocaleString('id-ID')}</span>
-                  </div>
-                  <div className="pt-2 border-t border-green-300 flex justify-between">
-                    <span className="font-semibold text-slate-700">Keuntungan:</span>
-                    <span className="font-bold text-green-600">
-                      Rp {(Number(formData.price) - Number(formData.cost)).toLocaleString('id-ID')}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">Margin:</span>
-                    <span className="font-semibold text-green-600">
-                      {(((Number(formData.price) - Number(formData.cost)) / Number(formData.price)) * 100).toFixed(1)}%
-                    </span>
-                  </div>
+            <div className="bg-white rounded-2xl shadow-lg border border-slate-200 p-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-3">Akumulasi Harga</h3>
+              <div className="space-y-2 text-sm text-slate-600">
+                <div className="flex items-center justify-between">
+                  <span>Harga beli / unit</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(costValue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Harga jual / unit</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(priceValue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Margin / unit</span>
+                  <span className="font-semibold text-emerald-600">{formatCurrency(marginValue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Total modal</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(totalCost)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Potensi omzet</span>
+                  <span className="font-semibold text-slate-900">{formatCurrency(totalRevenue)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Potensi profit</span>
+                  <span className="font-semibold text-emerald-600">{formatCurrency(totalProfit)}</span>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>

@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../../services/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
 import { Button } from "../ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 import {
   TrendingUp,
   DollarSign,
@@ -17,133 +16,353 @@ import {
   Download,
 } from "lucide-react";
 import { toast } from "sonner";
-import { usePOS } from '../../contexts/POSContext';
+import {
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Area,
+  AreaChart,
+  Legend,
+} from "recharts";
+import "./dashboard.css";
 
+type Summary = {
+  totalSales: number;
+  totalTransactions: number;
+  totalProducts: number;
+  lowStock: number;
+  totalUsers: number;
+};
+
+type ProfitPoint = { month: string; revenue: number; cogs: number; profit: number };
+type ProductRow = { productId: number; productName: string; revenue: number; profit: number };
+type DailySale = { id: number; totalAmount: number; createdAt: string };
+
+const formatCurrency = (val: number) => `Rp ${Math.round(val).toLocaleString("id-ID")}`;
+const monthLabel = (value: string) => {
+  const [y, m] = value.split("-");
+  return new Date(Number(y), Number(m) - 1, 1).toLocaleString("id-ID", { month: "short" });
+};
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const monthStart = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d.toISOString().slice(0, 10);
+  }, []);
+
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [profitSummary, setProfitSummary] = useState<{ revenue: number; cogs: number; grossProfit: number }>({
+    revenue: 0,
+    cogs: 0,
+    grossProfit: 0,
+  });
+  const [profitTrend, setProfitTrend] = useState<ProfitPoint[]>([]);
+  const [topProducts, setTopProducts] = useState<ProductRow[]>([]);
+  const [dailySales, setDailySales] = useState<DailySale[]>([]);
   const [timeFilter, setTimeFilter] = useState("monthly");
+  const [startDate, setStartDate] = useState(monthStart);
+  const [endDate, setEndDate] = useState(today);
+  const [loading, setLoading] = useState(false);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const params = { start: startDate, end: endDate };
+
+      const [
+        summaryRes,
+        profitSummaryRes,
+        profitMonthlyRes,
+        topProductsRes,
+        dailyRes,
+      ] = await Promise.allSettled([
+        api.get("/sales-report/summary"),
+        api.get("/profitloss/summary", { params }),
+        api.get("/profitloss/monthly", { params }),
+        api.get("/sales-report/by-product", { params }),
+        api.get("/sales-report/daily", { params }),
+      ]);
+
+      if (summaryRes.status === "fulfilled") {
+        setSummary(summaryRes.value.data);
+      }
+
+      if (profitSummaryRes.status === "fulfilled") {
+        setProfitSummary(profitSummaryRes.value.data);
+      } else {
+        setProfitSummary({ revenue: 0, cogs: 0, grossProfit: 0 });
+      }
+
+      if (profitMonthlyRes.status === "fulfilled") {
+        setProfitTrend(
+          (profitMonthlyRes.value.data || []).map((row: any) => ({
+            month: monthLabel(row.month),
+            revenue: Number(row.revenue),
+            cogs: Number(row.cogs),
+            profit: Number(row.profit),
+          }))
+        );
+      } else {
+        setProfitTrend([]);
+      }
+
+      if (topProductsRes.status === "fulfilled") {
+        setTopProducts(
+          (topProductsRes.value.data || []).slice(0, 5).map((row: any) => ({
+            productId: row.productId,
+            productName: row.productName,
+            revenue: Number(row.revenue || 0),
+            profit: Number(row.profit || 0),
+          }))
+        );
+      } else {
+        setTopProducts([]);
+      }
+
+      if (dailyRes.status === "fulfilled") {
+        setDailySales(
+          (dailyRes.value.data || []).map((row: any) => ({
+            id: row.id,
+            totalAmount: Number(row.totalAmount || 0),
+            createdAt: row.createdAt,
+          }))
+        );
+      } else {
+        setDailySales([]);
+      }
+    } catch (err: any) {
+      console.error(err);
+      toast.error(
+        err?.response?.data?.message || "Gagal memuat data dashboard"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-  api
-    .get("/sales-report/summary")
-    .then((res) => {
-      setSummary(res.data);
-    })
-    .catch((err) => {
-      console.error(err);
-      toast.error("Gagal memuat data dashboard");
-    })
-    .finally(() => setLoading(false));
-}, []);
+    fetchData();
+  }, []);
 
   const handleExport = (format: string) => {
     toast.success(`Laporan berhasil diekspor (${format.toUpperCase()})`);
   };
 
-  if (loading || !summary) {
-    return <p className="p-6">Memuat dashboard...</p>;
+  if (!summary) {
+    return (
+      <div className="space-y-4 p-6">
+        <div className="animate-pulse h-24 rounded-2xl bg-gradient-to-r from-blue-100 to-blue-50" />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map((k) => (
+            <div key={k} className="h-28 rounded-2xl bg-gray-100 animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Cards Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-[#007BFF] to-[#0056b3]">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/80 text-sm mb-1">Total Produk</p>
-                <h3 className="text-2xl text-white mb-2">
-                  {summary.totalProducts}
-                </h3>
-              </div>
-              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-                <Package className="w-8 h-8 text-white" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+    <div className="dashboard">
+      <section className="dashboard__hero">
+        <p className="dashboard__hero-date">
+          Rabu, {new Date().toLocaleDateString("id-ID")}
+        </p>
+        <h2 className="dashboard__hero-title">
+          Selamat Datang di Toko Sembako POS
+        </h2>
+        <p className="dashboard__hero-subtitle">
+          Kelola bisnis Anda dengan mudah dan efisien
+        </p>
+      </section>
 
-        <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-[#FFC107] to-[#FFA000]">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/80 text-sm mb-1">Stok Habis</p>
-                <h3 className="text-2xl text-white mb-2">{summary.lowStock}</h3>
-              </div>
-              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-                <Package className="w-8 h-8 text-white" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-[#28a745] to-[#1e7e34]">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/80 text-sm mb-1">Total User</p>
-                <h3 className="text-2xl text-white mb-2">{summary.totalUsers}</h3>
-              </div>
-              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-                <DollarSign className="w-8 h-8 text-white" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-none shadow-lg bg-gradient-to-br from-[#00BCD4] to-[#0097A7]">
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/80 text-sm mb-1">Total Transaksi</p>
-                <h3 className="text-2xl text-white mb-2">
-                  {summary.totalTransactions}
-                </h3>
-              </div>
-              <div className="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
-                <ShoppingCart className="w-8 h-8 text-white" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filter & Export */}
-      <Card className="rounded-2xl shadow-lg">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Filter & Export</CardTitle>
-              <CardDescription>Sesuaikan tampilan data dan ekspor laporan</CardDescription>
-            </div>
-            <div className="flex items-center gap-3">
-              <Select value={timeFilter} onValueChange={setTimeFilter}>
-                <SelectTrigger className="w-40 rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">Harian</SelectItem>
-                  <SelectItem value="monthly">Bulanan</SelectItem>
-                  <SelectItem value="yearly">Tahunan</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button onClick={() => handleExport("pdf")} className="bg-red-600 hover:bg-red-700 rounded-xl">
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
-              <Button onClick={() => handleExport("excel")} className="bg-green-600 hover:bg-green-700 rounded-xl">
-                <Download className="w-4 h-4 mr-2" />
-                Export Excel
-              </Button>
-            </div>
+      <section className="dashboard__stats">
+        <div className="stat-card stat-card--sales">
+          <div>
+            <p className="stat-card__label">Total Penjualan</p>
+            <h3 className="stat-card__value">
+              {formatCurrency(profitSummary.revenue)}
+            </h3>
+            <p className="stat-card__delta">+12.5%</p>
           </div>
-        </CardHeader>
-      </Card>
+          <div className="stat-card__icon">
+            <DollarSign className="stat-card__icon-svg" />
+          </div>
+        </div>
 
-      {/* Kamu bisa menambahkan grafik backend di sini nanti */}
+        <div className="stat-card stat-card--profit">
+          <div>
+            <p className="stat-card__label">Total Profit</p>
+            <h3 className="stat-card__value">
+              {formatCurrency(profitSummary.grossProfit)}
+            </h3>
+            <p className="stat-card__delta">+8.3%</p>
+          </div>
+          <div className="stat-card__icon">
+            <TrendingUp className="stat-card__icon-svg" />
+          </div>
+        </div>
+
+        <div className="stat-card stat-card--products">
+          <div>
+            <p className="stat-card__label">Total Produk</p>
+            <h3 className="stat-card__value">{summary.totalProducts}</h3>
+            <p className="stat-card__delta">
+              +{Math.max(summary.totalProducts - 1, 0)} produk baru
+            </p>
+          </div>
+          <div className="stat-card__icon">
+            <Package className="stat-card__icon-svg" />
+          </div>
+        </div>
+
+        <div className="stat-card stat-card--transactions">
+          <div>
+            <p className="stat-card__label">Total Transaksi</p>
+            <h3 className="stat-card__value">{summary.totalTransactions}</h3>
+            <p className="stat-card__delta">+15.7%</p>
+          </div>
+          <div className="stat-card__icon">
+            <ShoppingCart className="stat-card__icon-svg" />
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard__panel dashboard__filter">
+        <div>
+          <h3 className="dashboard__panel-title">Filter & Export</h3>
+          <p className="dashboard__panel-subtitle">
+            Sesuaikan tampilan data dan ekspor laporan
+          </p>
+        </div>
+        <div className="dashboard__filter-controls">
+          <Select value={timeFilter} onValueChange={setTimeFilter}>
+            <SelectTrigger className="dashboard__select">
+              <SelectValue placeholder="Periode" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="daily">Harian</SelectItem>
+              <SelectItem value="monthly">Bulanan</SelectItem>
+              <SelectItem value="yearly">Tahunan</SelectItem>
+            </SelectContent>
+          </Select>
+          <input
+            type="date"
+            className="dashboard__date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <input
+            type="date"
+            className="dashboard__date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+          />
+          <Button onClick={fetchData} disabled={loading} className="dashboard__button">
+            {loading ? "Memuat..." : "Terapkan"}
+          </Button>
+          <Button onClick={() => handleExport("pdf")} className="dashboard__button dashboard__button--pdf">
+            <Download className="dashboard__button-icon" />
+            Export PDF
+          </Button>
+          <Button onClick={() => handleExport("excel")} className="dashboard__button dashboard__button--excel">
+            <Download className="dashboard__button-icon" />
+            Export Excel
+          </Button>
+        </div>
+      </section>
+
+      <section className="dashboard__grid">
+        <div className="dashboard__card">
+          <div className="dashboard__card-header">
+            <h3 className="dashboard__card-title">Grafik Laba Rugi</h3>
+            <p className="dashboard__card-subtitle">
+              Perbandingan profit dan loss bulanan
+            </p>
+          </div>
+          <div className="dashboard__card-body dashboard__card-body--tall">
+            {profitTrend.length === 0 ? (
+              <p className="dashboard__empty">Belum ada data</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={profitTrend}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                  <Legend />
+                  <Line dataKey="profit" name="Profit" stroke="#22c55e" strokeWidth={3} dot={false} />
+                  <Line dataKey="cogs" name="Loss (COGS)" stroke="#f43f5e" strokeWidth={3} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="dashboard__card">
+          <div className="dashboard__card-header">
+            <h3 className="dashboard__card-title">Produk Terlaris</h3>
+            <p className="dashboard__card-subtitle">Top 5 produk dengan penjualan tertinggi</p>
+          </div>
+          <div className="dashboard__card-body dashboard__card-body--tall">
+            {topProducts.length === 0 ? (
+              <p className="dashboard__empty">Belum ada data</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topProducts}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                  <XAxis dataKey="productName" tick={{ fontSize: 12 }} />
+                  <YAxis />
+                  <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                  <Bar dataKey="profit" fill="#2563eb" radius={[8, 8, 0, 0]} name="Profit" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard__card">
+        <div className="dashboard__card-header">
+          <h3 className="dashboard__card-title">Total Penjualan</h3>
+          <p className="dashboard__card-subtitle">
+            Grafik penjualan harian dalam rentang terpilih
+          </p>
+        </div>
+        <div className="dashboard__card-body dashboard__card-body--medium">
+          {dailySales.length === 0 ? (
+            <p className="dashboard__empty">Belum ada data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={dailySales.map((d) => ({
+                  date: new Date(d.createdAt).toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
+                  total: d.totalAmount,
+                }))}
+              >
+                <defs>
+                  <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22c55e" stopOpacity={0.6} />
+                    <stop offset="95%" stopColor="#22c55e" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                <Area type="monotone" dataKey="total" stroke="#22c55e" fill="url(#colorSales)" name="Penjualan" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

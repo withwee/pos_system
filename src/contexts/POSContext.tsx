@@ -5,6 +5,7 @@ export interface Product {
   id: string;
   name: string;
   category: string;
+  categoryId?: number;
   supplier: string;
   purchasePrice: number;
   salePrice: number;
@@ -16,6 +17,9 @@ export interface Product {
   addedBy: string;
   addedDate: string;
   sku?: string;
+  unitId?: number;
+  unitName?: string;
+  unitSymbol?: string;
 }
 
 export interface CartItem {
@@ -40,6 +44,7 @@ export interface Transaction {
 
 export interface Purchase {
   id: string;
+  productId?: string;
   date: string;
   product: string;
   quantity: number;
@@ -65,9 +70,11 @@ interface POSContextType {
   notifications: Notification[];
 
   addProduct: (product: NewProductInput) => Promise<Product | null>;
+  addPurchaseEntry: (entry: Omit<Purchase, "id">) => void;
   updateProduct: (id: string, product: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   refreshProducts: () => Promise<void>;
+  refreshTransactions: () => Promise<void>;
 
   addToCart: (product: Product, quantity: number) => void;
   removeFromCart: (productId: string) => void;
@@ -96,12 +103,14 @@ export interface NewProductInput {
   minStock?: number;
   categoryId: number;
   unitId: number;
+  expiryDate?: string | null;
 }
 
 const mapApiProduct = (p: any): Product => ({
   id: String(p.id),
   name: p.name,
   category: p.category?.name || p.category || "Tanpa Kategori",
+  categoryId: p.category?.id ?? p.categoryId,
   supplier: p.supplier || "Unknown",
   purchasePrice: Number(p.cost ?? p.purchasePrice ?? 0),
   salePrice: Number(p.price ?? p.salePrice ?? 0),
@@ -115,7 +124,39 @@ const mapApiProduct = (p: any): Product => ({
     ? p.createdAt.split("T")[0]
     : new Date().toISOString().split("T")[0],
   sku: p.sku,
+  unitId: p.unit?.id ?? p.unitId,
+  unitName: p.unit?.name,
+  unitSymbol: p.unit?.symbol,
 });
+
+const mapApiTransaction = (t: any): Transaction => {
+  const items =
+    (t.TransactionItems || t.transactionItems || []).map((item: any) => ({
+      product: mapApiProduct(item.Product || item.product || {}),
+      quantity: Number(item.quantity || 0),
+    })) || [];
+
+  const subtotal = items.reduce(
+    (sum: number, item: CartItem) =>
+      sum + item.product.salePrice * item.quantity,
+    0
+  );
+
+  return {
+    id: String(t.id),
+    invoiceNo: t.transactionNumber || t.invoiceNo || String(t.id),
+    date: t.createdAt || t.date || new Date().toISOString(),
+    customer: t.customerName || t.customer || "Walk-in Customer",
+    items,
+    subtotal,
+    discount: Number(t.discount || 0),
+    tax: Number(t.tax || 0),
+    total: Number(t.totalAmount || t.total || subtotal),
+    paymentMethod: t.paymentMethod || "cash",
+    status: t.status || "Completed",
+    cashier: t.user?.name || t.cashier || "Admin",
+  };
+};
 
 /* -------------------------------------------------------------
    MOCK DATA
@@ -171,6 +212,7 @@ const mockTransactions: Transaction[] = [
 const mockPurchases: Purchase[] = [
   {
     id: "1",
+    productId: "1",
     date: "2025-11-08",
     product: "Indomie Goreng",
     quantity: 100,
@@ -202,13 +244,53 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       const payload = res.data?.data ?? res.data ?? [];
       const mapped: Product[] = (payload as any[]).map(mapApiProduct);
       setProducts(mapped);
+      setPurchases((prev) => {
+        const existingByProductId = new Set(
+          prev.map((p) => p.productId).filter(Boolean) as string[]
+        );
+        const existingByName = new Set(prev.map((p) => p.product));
+
+        const derived = mapped
+          .filter((p) => {
+            if (existingByProductId.has(p.id)) return false;
+            if (existingByProductId.size === 0 && existingByName.has(p.name)) {
+              return false;
+            }
+            return true;
+          })
+          .map((p) => ({
+            id: `seed-${p.id}`,
+            productId: p.id,
+            date: p.addedDate,
+            product: p.name,
+            quantity: p.stock,
+            totalCost: p.purchasePrice * p.stock,
+            supplier: p.supplier || "Unknown",
+            addedBy: p.addedBy || "Admin",
+          }));
+
+        if (derived.length === 0) return prev;
+        return [...derived, ...prev];
+      });
     } catch (err) {
       console.error("Failed to load products:", err);
     }
   };
 
+  const refreshTransactions = async () => {
+    try {
+      const res = await api.get("/transactions");
+      const payload = res.data?.data ?? res.data ?? [];
+      const mapped: Transaction[] = (payload as any[]).map(mapApiTransaction);
+      setTransactions(mapped);
+    } catch (err) {
+      console.error("Failed to load transactions:", err);
+    }
+  };
+
   useEffect(() => {
     refreshProducts();
+    refreshTransactions();
   }, []);
 
   /* -------------------------------------------------------------
@@ -231,6 +313,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       setPurchases((prev) => [
         {
           id: Date.now().toString(),
+          productId: newProduct.id,
           date: newProduct.addedDate,
           product: newProduct.name,
           quantity: newProduct.stock,
@@ -246,6 +329,16 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
       console.error("Failed to add product:", err);
       return null;
     }
+  };
+
+  const addPurchaseEntry = (entry: Omit<Purchase, "id">) => {
+    setPurchases((prev) => [
+      {
+        id: Date.now().toString(),
+        ...entry,
+      },
+      ...prev,
+    ]);
   };
 
   const updateProduct = async (id: string, updated: Partial<Product>) => {
@@ -365,6 +458,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         purchases,
         notifications,
         addProduct,
+        addPurchaseEntry,
         updateProduct,
         deleteProduct,
         addToCart,
@@ -375,6 +469,7 @@ export function POSProvider({ children }: { children: React.ReactNode }) {
         markNotificationAsRead,
         markAllNotificationsAsRead,
         refreshProducts,
+        refreshTransactions,
 
         storeName: "POS Mart", // ✅ FIXED
       }}
